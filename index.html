@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Digital Drawing Art</title>
+
+  <!-- PWA manifest -->
+  <link rel="manifest" href="manifest.json">
+  <link rel="icon" type="image/png" href="icon-192.png">
+  <meta name="theme-color" content="#000000">
+
+  <style>
+    :root{
+      --bg:#ffffff; --fg:#000000; --accent:#009696; --card:#f7f7f7;
+    }
+    body{font-family: Arial, Helvetica, sans-serif;margin:0;background:var(--bg);color:var(--fg);}
+    header{background:#000;color:#fff;padding:12px 16px;display:flex;align-items:center;justify-content:space-between;gap:12px}
+    header .title{font-weight:700}
+    .main{padding:18px;max-width:980px;margin:0 auto}
+    .home{display:flex;gap:12px;align-items:center;justify-content:center;margin-top:40px;flex-direction:column}
+    .btn{background:#fff;border:2px solid #000;padding:10px 16px;border-radius:10px;cursor:pointer;font-weight:600}
+    .small{padding:8px 10px;font-size:14px}
+    .screen{display:none}
+    .active{display:block}
+    .size-grid{display:flex;gap:8px;flex-wrap:wrap;justify-content:center}
+    .toolbar{display:flex;gap:8px;flex-wrap:wrap;justify-content:center;margin:12px 0}
+    .canvas-wrap{display:flex;justify-content:center}
+    canvas{background:#fff;border:2px solid #000;border-radius:8px;touch-action:none;display:block;max-width:100%}
+    .controls label{display:inline-flex;align-items:center;gap:8px;background:var(--card);padding:8px;border-radius:8px;border:1px solid #ddd}
+    .gallery{display:flex;flex-wrap:wrap;gap:12px;justify-content:center;margin-top:12px}
+    .card{background:var(--card);padding:8px;border-radius:8px;border:1px solid #ddd;text-align:center}
+    .muted{color:#555;font-size:14px}
+    footer{padding:12px 16px;text-align:center;color:#666;font-size:13px}
+  </style>
+</head>
+<body>
+<header>
+  <div style="display:flex;align-items:center;gap:12px;">
+    <div style="width:36px;height:36px;background:var(--accent);border-radius:8px;display:flex;align-items:center;justify-content:center;color:#fff;font-weight:700">DA</div>
+    <div class="title">Digital Drawing Art</div>
+  </div>
+</header>
+
+<main class="main">
+  <!-- HOME -->
+  <section id="home" class="screen active">
+    <div class="home">
+      <button class="btn" onclick="showSizeOptions()">+ Add New Canvas</button>
+      <button class="btn" onclick="showGallery()">See Creation</button>
+      <p class="muted">Your Creation - Tap "See Creation" to view saved artworks</p>
+    </div>
+  </section>
+
+  <!-- SIZE SELECT -->
+  <section id="sizeSelect" class="screen">
+    <h3 style="text-align:center">Choose Canvas Size</h3>
+    <div class="size-grid" role="list">
+      <button class="btn small" onclick="startDrawing(600,800,'Small')">Small</button>
+      <button class="btn small" onclick="startDrawing(900,1200,'Medium')">Medium</button>
+      <button class="btn small" onclick="startDrawing(1200,1800,'Large')">Large</button>
+      <button class="btn small" onclick="startDrawing(842,1191,'A4')">A4</button>
+      <button class="btn small" onclick="startDrawing(1000,1000,'Square')">Square</button>
+    </div>
+    <p style="text-align:center;margin-top:12px" class="muted">Tip: Two-finger gestures = pan/zoom; one-finger = draw.</p>
+    <div style="text-align:center;margin-top:18px">
+      <button class="btn" onclick="goHome()">Back</button>
+    </div>
+  </section>
+
+  <!-- DRAWING -->
+  <section id="drawing" class="screen">
+    <div class="toolbar controls" role="toolbar" aria-label="Drawing controls">
+      <button class="btn small" onclick="undo()">Undo</button>
+      <button class="btn small" onclick="redo()">Redo</button>
+      <button class="btn small" onclick="clearCanvas()">Clear</button>
+      <label>Opacity <input id="opacity" type="range" min="0.1" max="1" step="0.1" value="1"></label>
+      <label>Brush <input id="size" type="range" min="1" max="60" value="6"></label>
+      <label>Color <input id="color" type="color" value="#000000"></label>
+      <button class="btn small" onclick="saveToGallery()">Save to App</button>
+      <button class="btn small" onclick="saveAsPNG()">Save as PNG</button>
+      <button class="btn small" onclick="goHome()">Exit</button>
+    </div>
+    <div class="canvas-wrap">
+      <canvas id="canvas" width="800" height="1600"></canvas>
+    </div>
+    <p class="muted" style="text-align:center">Single finger draws; two fingers pan/zoom.</p>
+  </section>
+
+  <!-- GALLERY -->
+  <section id="gallery" class="screen">
+    <h3 style="text-align:center">See Creation</h3>
+    <p class="muted" style="text-align:center">Tap a creation to edit or continue drawing.</p>
+    <div id="saved" class="gallery"></div>
+    <div style="text-align:center;margin-top:12px">
+      <button class="btn" onclick="goHome()">Back</button>
+    </div>
+  </section>
+</main>
+
+<footer>Max 10 artworks stored. Oldest removed when over limit.</footer>
+
+<script>
+window.addEventListener('load', () => {
+  const canvas = document.getElementById('canvas');
+  const ctx = canvas.getContext('2d');
+  let drawing=false;
+  let touchCount=0;
+  let history = [];
+  let redoStack = [];
+  let gallery = JSON.parse(localStorage.getItem('drawings')||'[]');
+  const MAX_GALLERY = 10;
+
+  function showScreen(id){ document.querySelectorAll('.screen').forEach(s=>s.classList.remove('active')); document.getElementById(id).classList.add('active'); }
+  function goHome(){ showScreen('home'); }
+  function showSizeOptions(){ showScreen('sizeSelect'); }
+  function showGallery(){ renderGallery(); showScreen('gallery'); }
+
+  function setCanvasSize(w,h){
+    const dpr = window.devicePixelRatio||1;
+    canvas.width = Math.floor(w*dpr);
+    canvas.height = Math.floor(h*dpr);
+    canvas.style.width = w+'px';
+    canvas.style.height = h+'px';
+    ctx.setTransform(dpr,0,0,dpr);
+    ctx.fillStyle='#fff'; ctx.fillRect(0,0,w,h);
+  }
+
+  function startDrawing(w,h,label){
+    setCanvasSize(w,h);
+    history=[]; redoStack=[];
+    showScreen('drawing');
+  }
+
+  function saveState(){ try{ history.push(canvas.toDataURL()); if(history.length>200) history.shift(); redoStack=[]; }catch(e){} }
+  function undo(){ if(history.length<=1){ clearCanvas(); return; } redoStack.push(history.pop()); restore(history[history.length-1]); }
+  function redo(){ if(!redoStack.length) return; const next=redoStack.pop(); history.push(next); restore(next); }
+  function restore(dataUrl){ const img=new Image(); img.onload=()=>{ ctx.clearRect(0,0,canvas.width,canvas.height); ctx.drawImage(img,0,0,canvas.width/(window.devicePixelRatio||1),canvas.height/(window.devicePixelRatio||1)); }; img.src=dataUrl; }
+
+  function setStroke(){ ctx.lineWidth=parseInt(document.getElementById('size').value); ctx.lineCap='round'; ctx.lineJoin='round'; ctx.globalAlpha=parseFloat(document.getElementById('opacity').value); ctx.strokeStyle=document.getElementById('color').value; }
+
+  function clearCanvas(){ const w=parseFloat(canvas.style.width); const h=parseFloat(canvas.style.height); ctx.setTransform(1,0,0,1,0,0); ctx.clearRect(0,0,canvas.width,canvas.height); const dpr=window.devicePixelRatio||1; ctx.setTransform(dpr,0,0,dpr,0,0); ctx.fillStyle='#fff'; ctx.fillRect(0,0,w,h); history=[]; redoStack=[]; }
+
+  canvas.addEventListener('mousedown', e=>{ drawing=true; ctx.beginPath(); ctx.moveTo(e.offsetX,e.offsetY); saveState(); });
+  canvas.addEventListener('mousemove', e=>{ if(!drawing) return; setStroke(); ctx.lineTo(e.offsetX,e.offsetY); ctx.stroke(); });
+  canvas.addEventListener('mouseup', ()=>{ drawing=false; ctx.closePath(); });
+  canvas.addEventListener('mouseleave', ()=>{ drawing=false; ctx.closePath(); });
+
+  canvas.addEventListener('touchstart', e=>{ touchCount=e.touches.length; if(touchCount===1){ e.preventDefault(); const t=e.touches[0]; const rect=canvas.getBoundingClientRect(); ctx.beginPath(); ctx.moveTo(t.clientX-rect.left,t.clientY-rect.top); drawing=true; saveState(); } },{passive:false});
+  canvas.addEventListener('touchmove', e=>{ if(touchCount!==1||!drawing) return; e.preventDefault(); const t=e.touches[0]; const rect=canvas.getBoundingClientRect(); setStroke(); ctx.lineTo(t.clientX-rect.left,t.clientY-rect.top); ctx.stroke(); },{passive:false});
+  canvas.addEventListener('touchend', e=>{ touchCount=e.touches.length; if(touchCount===0){ drawing=false; ctx.closePath(); } });
+
+  function saveToGallery(){ const url=canvas.toDataURL(); if(gallery.length>=MAX_GALLERY){ gallery.shift(); } gallery.push(url); localStorage.setItem('drawings',JSON.stringify(gallery)); alert('Saved to App!'); }
+  function saveAsPNG(){ const url=canvas.toDataURL(); const a=document.createElement('a'); a.href=url; a.download='drawing.png'; a.click(); }
+
+  function renderGallery(){ const container=document.getElementById('saved'); container.innerHTML=''; gallery.forEach((src,i)=>{ const card=document.createElement('div'); card.className='card'; const img=document.createElement('img'); img.src=src; img.style.maxWidth='180px'; img.style.cursor='pointer'; img.onclick=()=>{ loadFromGallery(i); }; const lbl=document.createElement('div'); lbl.innerText=`Artwork ${i+1}/${gallery.length}`; lbl.className='muted'; const del=document.createElement('button'); del.innerText='Delete'; del.onclick=()=>{ if(confirm('Delete this artwork?')){ gallery.splice(i,1); localStorage.setItem('drawings',JSON.stringify(gallery)); renderGallery(); } }; card.appendChild(img); card.appendChild(lbl); card.appendChild(del); container.appendChild(card); }); }
+
+  function loadFromGallery(index){ const src=gallery[index]; const img=new Image(); img.onload=()=>{ setCanvasSize(img.width,img.height); ctx.clearRect(0,0,canvas.width,canvas.height); ctx.drawImage(img,0,0,img.width,img.height); history=[canvas.toDataURL()]; redoStack=[]; showScreen('drawing'); }; img.src=src; }
+
+  // Make functions global for button onclick
+  window.goHome = goHome;
+  window.showSizeOptions = showSizeOptions;
+  window.showGallery = showGallery;
+  window.startDrawing = startDrawing;
+  window.undo = undo;
+  window.redo = redo;
+  window.clearCanvas = clearCanvas;
+  window.saveToGallery = saveToGallery;
+  window.saveAsPNG = saveAsPNG;
+
+  // Initialize default canvas
+  startDrawing(600,800,'Default');
+});
+</script>
+</body>
+</html>
